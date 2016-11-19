@@ -1,4 +1,4 @@
-﻿namespace Server
+﻿namespace server
 {
     partial class Form1
     {
