@@ -1,6 +1,6 @@
-﻿namespace server
+﻿namespace client
 {
-    partial class Form1
+    partial class clientForm
     {
         /// <summary>
         /// Required designer variable.
