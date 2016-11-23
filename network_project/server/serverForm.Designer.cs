@@ -37,7 +37,6 @@
             this.Numeric_Port = new System.Windows.Forms.NumericUpDown();
             this.Button_Start = new System.Windows.Forms.Button();
             this.Button_Stop = new System.Windows.Forms.Button();
-            this.test = new System.Windows.Forms.Button();
             ((System.ComponentModel.ISupportInitialize)(this.Numeric_Port)).BeginInit();
             this.SuspendLayout();
             // 
@@ -125,22 +124,11 @@
             this.Button_Stop.UseVisualStyleBackColor = true;
             this.Button_Stop.Click += new System.EventHandler(this.Button_Stop_Click);
             // 
-            // test
-            // 
-            this.test.Location = new System.Drawing.Point(244, 121);
-            this.test.Name = "test";
-            this.test.Size = new System.Drawing.Size(67, 34);
-            this.test.TabIndex = 10;
-            this.test.Text = "test";
-            this.test.UseVisualStyleBackColor = true;
-            this.test.Click += new System.EventHandler(this.test_Click);
-            // 
             // serverForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(561, 334);
-            this.Controls.Add(this.test);
             this.Controls.Add(this.Button_Stop);
             this.Controls.Add(this.Button_Start);
             this.Controls.Add(this.Numeric_Port);
@@ -170,7 +158,6 @@
         private System.Windows.Forms.NumericUpDown Numeric_Port;
         private System.Windows.Forms.Button Button_Start;
         private System.Windows.Forms.Button Button_Stop;
-        private System.Windows.Forms.Button test;
 
     }
 }

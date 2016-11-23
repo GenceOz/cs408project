@@ -1,5 +1,4 @@
-﻿
-/*
+﻿/*
  * Author: Gence Özer 
  * Date: 11/19/2016
  */
@@ -63,16 +62,11 @@ namespace server
         }
 
         /*
-         * This function retrieves path and port information from GUI
-         * First, it creates a directory, if not exists, 
-         * then it binds a socket and puts it in a listening state to
-         * given port info.
+         * This function checks if the directory in the given 
+         * path exists, if it doesn't it creates a directory
          */
-        private void initalizeListening()
+        private void createDirectoryInPath(String path)
         {
-            string path = TextBox_Path.Text;
-
-            //Create a folder in the given path
             try
             {
                 if (!Directory.Exists(path))
@@ -82,25 +76,41 @@ namespace server
                 }
                 else
                 {
-                    printLogger("Directory alread exist in the path: " + path);
+                    printLogger("Directory already exists in the path: " + path);
                 }
             }
             catch (Exception exc)
             {
-                Console.WriteLine("Exception : " + exc.ToString());
-                MessageBox.Show("Exception occured on directory creation.");
+                MessageBox.Show("Exception occured on directory creation:" + exc.Message);
                 return;
             }
+        }
+
+        /*
+         * This function retrieves path and port information from GUI
+         * First, it creates a directory, if not exists, 
+         * then it binds a socket and puts it in a listening state to
+         * given port info.
+         */
+        private void initalizeListening()
+        {
+            //Create a folder in the given path
+            string path = TextBox_Path.Text;
+            createDirectoryInPath(path);
 
             //Binding the socket to ip and given port name, puts the socket in listening state
             int portNumber =  (int)Numeric_Port.Value;
             epLocal = new IPEndPoint(IPAddress.Parse(getLocalIP()), portNumber);
-            socket.Bind(epLocal);
-            socket.Listen(portNumber);
-
-            /* Sets up the thread which will perform the handshake connection
-             * with the client 
-             */
+            try
+            {
+                socket.Bind(epLocal);
+                socket.Listen(portNumber);
+            }catch(Exception exc)
+            {
+                MessageBox.Show("Exception occured: " + exc.Message);
+            }
+              
+            // Sets up the thread which will perform the handshake connection with the client 
             try
             {
                 dispatcherThread = new Thread(new ThreadStart(dispatchFileTransferOperations));
@@ -115,93 +125,157 @@ namespace server
         }
 
         /*
-         * 
+         * This function continously listens to given port
+         * when a connection comes, it transfers the connection
+         * to a new socket that will be handled in a seperate thread.
+         * After, thread runs the socket keeps on listening for 
+         * new incoming connections.
          */
         private void dispatchFileTransferOperations() 
         {
             while (true)
             {
-                Socket dataTransferSocket = socket.Accept();
-                Thread clientConnectionThread = new Thread(new ParameterizedThreadStart(transferData));
-                clientConnectionThread.Start(dataTransferSocket);
-            }
-        }
-
-        private void transferData(Object socketObj)
-        {
-            Socket socket = (Socket)socketObj;
-            
-            //Recieves the username, filename and filesize to establish the connection
-            byte[] handshakeInfo = new byte[128];
-            socket.Receive(handshakeInfo);
-         
-            ASCIIEncoding encoder = new ASCIIEncoding();
-            //Parsing username 
-            int usernameSize = BitConverter.ToInt32(handshakeInfo.Take(4).ToArray(),0);
-            string username = encoder.GetString(handshakeInfo.Skip(4).Take(usernameSize).ToArray());
-
-            printLogger("An incoming connection from user: " + username);
-            
-            if (checkUserList(username))
-            {
-                //Username already has a active connection, terminate
-                printLogger("user " + username + "already has an active connection. Terminating connection.");
-            }
-            else
-            {
-                //Add the username in the list
-                connectedUsers.Add(username);
-
-                //Parsing filename and fileSize
-                int filenameSize = BitConverter.ToInt32(handshakeInfo.Skip(4 + usernameSize).Take(4).ToArray(), 0);
-                string filename = encoder.GetString(handshakeInfo.Skip(8 + usernameSize).Take(filenameSize).ToArray());
-                int fileSize = BitConverter.ToInt32(handshakeInfo.Skip(4 + usernameSize + 4 + filenameSize).Take(4).ToArray(), 0);
-                printLogger("Recieving file");
-                
-                byte[] data = new byte[2048];
-                printLogger(fileSize.ToString());
                 try
                 {
-                    var stream = File.Create(TextBox_Path.Text + "\\" + "Simple.txt");
-
-                    int bytesLeftToTransfer = fileSize;    
-                    while (bytesLeftToTransfer > 0)
-                    {
-                        int noOfBytes = socket.Receive(data);
-                        int bytesToCopy = Math.Min(noOfBytes, bytesLeftToTransfer);
-                        stream.Write(data, 0, bytesToCopy);
-
-                        bytesLeftToTransfer -= bytesToCopy;
-                        printLogger("RecievedBytes " + noOfBytes + " " + bytesLeftToTransfer);
-                    }
-                    stream.Close();
-                    socket.Close();
+                    Socket dataTransferSocket = socket.Accept();
+                    Thread clientConnectionThread = new Thread(new ParameterizedThreadStart(handleUserConnection));
+                    clientConnectionThread.Start(dataTransferSocket);
                 }
                 catch (Exception exc)
                 {
-                    MessageBox.Show(exc.Message);
-                }
-
-                try
-                {
-                    printLogger("Writing file " + filenameSize +" "+ filename + " " + username );
-                    BinaryWriter bWrite = new BinaryWriter(File.Open(TextBox_Path.Text + "\\" + "Gence_Özer_CV.pdf", FileMode.Append));
-                    bWrite.Write(data, 0, fileSize);
-                    bWrite.Close();
-                }
-                catch (Exception exc) {
-                    MessageBox.Show(exc.Message);
-                }
+                    MessageBox.Show("Exception occured while listening: " + exc.Message);
+                }    
             }
         }
 
         /*
-         *  This method destroys the sockets
+         * This function allows users to make multiple file
+         * transfer throughout their connection
+         * TODO:finish the function
          */
-        private void terminateSocket()
+        private void handleUserConnection(Object socketObj)
         {
-            //TODO: Not sure about how to terminate socket connection
-            socket.Close();
+            Socket socket = (Socket)socketObj;
+            printLogger("Handle user connection entered");
+            //Recieves the username, filename and filesize to establish the connection
+            byte[] handshakeInfo = new byte[128];
+            try
+            {
+                socket.Receive(handshakeInfo);
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Socket exception occured: " + exc.Message);
+            }
+           
+            ASCIIEncoding encoder = new ASCIIEncoding();
+            //Parsing username 
+            int usernameSize = BitConverter.ToInt32(handshakeInfo.Take(4).ToArray(), 0);
+            string username = encoder.GetString(handshakeInfo.Skip(4).Take(usernameSize).ToArray());
+
+            printLogger("An incoming connection request from user: " + username);
+
+            if (checkUserList(username))
+            {
+                //Username already has a active connection, terminate
+                printLogger("user " + username + "already has an active connection. Terminating connection.");
+                termianteUserConnection(socket, username);
+                return;
+            }
+
+            //Add the username in the list
+            connectedUsers.Add(username);
+
+            printLogger("Checking for existing directory of user: " + username);
+            createDirectoryInPath(TextBox_Path.Text + "\\" + username);
+
+            bool isClientConnected = true;
+            while (isClientConnected)
+            {
+                isClientConnected = transferData(socketObj,username);
+            }
+        }
+
+        /*
+         * This function takes a socket object as a parameter. 
+         * First, it recieves the handshake information from the 
+         * client, which contains username size,username, filename size,
+         * filename, filesize. Then, it verifies that this is a unique client
+         * by checking it on the namelist. If it verifies, it initiates data transfer
+         * over TCP sockets.
+         */
+        private bool transferData(Object socketObj, string username)
+        {
+            Socket socket = (Socket)socketObj;
+             
+            byte[] fileInfo = new byte[128];
+            try
+            {
+                 socket.Receive(fileInfo);
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Socket exception occured: " + exc.Message);
+            }
+           
+            ASCIIEncoding encoder = new ASCIIEncoding();
+            //Parsing filename and fileSize
+            int filenameSize = BitConverter.ToInt32(fileInfo.Take(4).ToArray(), 0);
+            string filename = encoder.GetString(fileInfo.Skip(4).Take(filenameSize).ToArray());
+            int fileSize = BitConverter.ToInt32(fileInfo.Skip(4 + filenameSize).Take(4).ToArray(), 0);
+
+            printLogger("File transfer started for user:" + username + " filesize: " + fileSize);
+            
+            /*
+             * Recieves the file in chunks of 2KB, it continues to recieve until 
+             * the file transfer is completed.
+             */ 
+            byte[] data = new byte[2048];
+            FileStream stream = File.Create(TextBox_Path.Text + "\\" + username + "\\" + filename);
+            try
+            {
+                int bytesLeftToTransfer = fileSize;
+                printLogger("Filesize: " + fileSize);
+                while (bytesLeftToTransfer > 0)
+                {
+                    printLogger("BytesLeftToTransfer " + bytesLeftToTransfer);
+                    int amountOfBytes = socket.Receive(data);
+                    printLogger("*");
+                    int bytesToCopy = Math.Min(amountOfBytes, bytesLeftToTransfer);
+                    stream.Write(data, 0, bytesToCopy);
+                    bytesLeftToTransfer -= bytesToCopy;
+                    printLogger("RecievedBytes " + amountOfBytes + " " + bytesLeftToTransfer);
+                }
+                printLogger("Stream closed");
+                stream.Close();
+            }
+            catch (SocketException exc)
+            {
+                MessageBox.Show("Socket Exception occured: " + exc.Message);
+                stream.Close();
+                File.Delete(TextBox_Path.Text + "\\" + username + "\\" + filename);
+                termianteUserConnection(socket, username);
+                return false;
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show(exc.Message);
+                termianteUserConnection(socket, username);
+                return false;
+            }
+            printLogger("File transfer finished for user:" + username);
+            return true;
+         }
+        
+
+        /*
+         *  This method terminates the sockets 
+         *  TODO: Notify the client about socket termination
+         */
+        private void terminateSocket(Socket sck)
+        {
+            sck.Shutdown(SocketShutdown.Both);
+            sck.Close();
         }
 
         private void Button_Start_Click(object sender, EventArgs e)
@@ -223,57 +297,38 @@ namespace server
 
         private void Button_Stop_Click(object sender, EventArgs e)
         {
-            terminateSocket();
+            terminateSocket(socket);
             Button_Stop.Enabled = false;
             Button_Start.Enabled = true;
         }
 
+        /*
+         * This method iterates over the user list to find out 
+         * whether the username already exists on the list
+         */
         private bool checkUserList(string nameToCheck)
         {
             foreach(string clientName in connectedUsers)
             {
                 if (clientName.Equals(nameToCheck)) 
                 {
-                    // User name exists in the list
+                    // User name exists in the list return true
                     return true;
                 }
             }
-
             // Iterated over all of the list, username is not in the list
             return false;
         }
-        byte[] fileData;
-        private void test_Click(object sender, EventArgs e)
+
+        private void removeFromUserList(string username)
         {
-            Socket clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            clientSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            connectedUsers.Remove(username);
+        }
 
-            EndPoint ipLocal = new IPEndPoint(IPAddress.Parse(getLocalIP()), 8889);
-            EndPoint ipEnd = new IPEndPoint(IPAddress.Parse(getLocalIP()), 8888);
-            clientSocket.Bind(ipLocal);
-            clientSocket.Connect(ipEnd);
-
-            fileData = File.ReadAllBytes("D:\\Users\\SUUSER\\Desktop" + "\\Simple.txt");
-
-            string username = "asdfghjklo";
-            string filename = "Simple.txt";
-            Int32 filesize = fileData.Length;
-
-            ASCIIEncoding aEncoder = new ASCIIEncoding();
-            byte[] usernameInBytes = aEncoder.GetBytes(username);
-            byte[] filenameInBytes = aEncoder.GetBytes(filename);
-            byte[] data = new byte[12 + username.Length + filename.Length];
-
-            System.Buffer.BlockCopy(BitConverter.GetBytes(usernameInBytes.Length), 0, data, 0, 4);
-            System.Buffer.BlockCopy(usernameInBytes, 0, data, 4, usernameInBytes.Length);
-            System.Buffer.BlockCopy(BitConverter.GetBytes(filenameInBytes.Length), 0, data, 4 + usernameInBytes.Length, 4);
-            System.Buffer.BlockCopy(filenameInBytes, 0, data, 8 + usernameInBytes.Length, filenameInBytes.Length);
-            System.Buffer.BlockCopy(BitConverter.GetBytes(filesize), 0, data, 8 + usernameInBytes.Length + filenameInBytes.Length, 4);
-
-            printLogger(data.Length.ToString());
-            clientSocket.Send(data);
-            int sentData = clientSocket.Send(fileData);
-            printLogger("Sent bytes -> " + sentData.ToString());
+        private void termianteUserConnection(Socket socket, string username)
+        {
+            terminateSocket(socket);
+            removeFromUserList(username);
         }
     }
 }
