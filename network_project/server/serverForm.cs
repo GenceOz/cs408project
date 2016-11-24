@@ -19,7 +19,7 @@ using System.Windows.Forms;
 
 namespace server
 {
-    public partial class serverForm : Form
+    public partial class  serverForm : Form
     {
         Socket socket;
         EndPoint epLocal;
@@ -110,6 +110,7 @@ namespace server
             try
             {
                 dispatcherThread = new Thread(new ThreadStart(dispatchFileTransferOperations));
+                dispatcherThread.IsBackground = true;
                 dispatcherThread.Start();
                 printLogger("Dispatcher thread starts working.");
                 printLogger("Server is now listening on port: " + portNumber);
@@ -136,6 +137,7 @@ namespace server
                     Socket dataTransferSocket = socket.Accept();
                     printLogger("A new incomming connection accepted");
                     Thread clientConnectionThread = new Thread(new ParameterizedThreadStart(handleUserConnection));
+                    clientConnectionThread.IsBackground = true;
                     clientConnectionThread.Start(dataTransferSocket);
                 }
                 catch (Exception exc)
@@ -148,7 +150,6 @@ namespace server
         /*
          * This function allows users to make multiple file
          * transfer throughout their connection
-         * TODO:finish the function
          */
         private void handleUserConnection(Object socketObj)
         {
@@ -169,8 +170,8 @@ namespace server
             {
                 MessageBox.Show("Socket exception occured: " + exc.Message);
             }
-           
-            ASCIIEncoding encoder = new ASCIIEncoding();
+
+            UTF8Encoding encoder = new UTF8Encoding();
             //Parsing username 
             int usernameSize = BitConverter.ToInt32(handshakeInfo.Take(4).ToArray(), 0);
             string username = encoder.GetString(handshakeInfo.Skip(4).Take(usernameSize).ToArray());
@@ -227,8 +228,8 @@ namespace server
             {
                 MessageBox.Show("Socket exception occured: " + exc.Message);
             }
-           
-            ASCIIEncoding encoder = new ASCIIEncoding();
+
+            UTF8Encoding encoder = new UTF8Encoding();
             //Parsing filename and fileSize
             int filenameSize = BitConverter.ToInt32(fileInfo.Take(4).ToArray(), 0);
             string filename = encoder.GetString(fileInfo.Skip(4).Take(filenameSize).ToArray());

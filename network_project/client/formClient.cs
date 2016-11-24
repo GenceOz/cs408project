@@ -23,7 +23,6 @@ namespace myClient
     {
         Socket cliSocket;
         byte[] receivedBytes = new byte[2048];
-        byte[] fileData;
 
         public formClient()
         {
@@ -54,7 +53,7 @@ namespace myClient
 
         private void clientSend_Click(object sender, EventArgs e)
         {
-            ASCIIEncoding aEncoder = new ASCIIEncoding();
+            UTF8Encoding aEncoder = new UTF8Encoding();
             printLogger("System is uploading the file/folder... ");
             long filesize = new System.IO.FileInfo(clientText.Text).Length;
             string filename = Path.GetFileName(clientText.Text);
@@ -62,7 +61,6 @@ namespace myClient
             byte[] filenameInBytes = aEncoder.GetBytes(filename);
             byte[] fileInfo = new byte[12 + filename.Length];
 
-            MessageBox.Show(filesize.ToString() + " " + filenameInBytes.Length);
             //Filling fileInfo byte array
             Buffer.BlockCopy(BitConverter.GetBytes(filenameInBytes.Length), 0, fileInfo, 0, 4);
             Buffer.BlockCopy(filenameInBytes, 0, fileInfo, 4, filenameInBytes.Length);
@@ -78,14 +76,38 @@ namespace myClient
                 return;
             }
 
+            Thread.Sleep(1000);
+
             try
             {
-               cliSocket.SendFile(clientText.Text);
+                cliSocket.BeginSendFile(clientText.Text, new AsyncCallback(FileSendCallback), cliSocket);
             }
             catch (Exception exc)
             {
                 MessageBox.Show("Exception occured during data transfer: " + exc.Message);
                 return;
+            }
+        }
+
+        private void FileSendCallback(IAsyncResult ar)
+        {
+            // Retrieve the socket from the state object.
+            Socket client = (Socket)ar.AsyncState;
+
+            // Complete sending the data to the remote device.
+            printLogger("File transfer complete");
+            try
+            {
+                client.EndSendFile(ar);
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Socket exception occured.");
+                clientConnect.Text = "Connect";
+                clientConnect.BackColor = DefaultBackColor;
+                clientSend.Enabled = false;
+                cliSocket.Shutdown(SocketShutdown.Both);
+                cliSocket.Close();
             }
         }
 
