@@ -1,4 +1,9 @@
-﻿using System;
+﻿/*
+ * Author: Eylül Dicle Yurdakul
+ * Date: 12/19/2016
+ */
+
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -25,20 +30,22 @@ namespace myClient
             InitializeComponent();
             TextBox.CheckForIllegalCrossThreadCalls = false;
         }
-        
-        private void clientConnect_Click(object sender, EventArgs e)
+
+        private void printLogger(string message)
         {
-            cliSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            cliSocket.Connect(clientIP.Text, Convert.ToInt32(clientPort.Text));
+            string now = DateTime.Now.ToString(@"MM\/dd\/yyyy h\:mm tt");
+            clientBox.AppendText(now + "--> " + message + "\n");
         }
 
         private void clientBrowse_Click(object sender, EventArgs e)
         {
+            printLogger("You are connected to the system as " + clientUsername.Text + ".");
             OpenFileDialog fDialog = new OpenFileDialog();
             if (fDialog.ShowDialog() == DialogResult.OK)
             {
                 MessageBox.Show(fDialog.FileName.ToString());
                 clientText.Text = fDialog.FileName.ToString();
+                printLogger("You chose " + Path.GetFileName(fDialog.FileName) + " to upload.");
             }
             fDialog.AddExtension = true;
             fDialog.CheckFileExists = true;
@@ -48,7 +55,7 @@ namespace myClient
         private void clientSend_Click(object sender, EventArgs e)
         {
             ASCIIEncoding aEncoder = new ASCIIEncoding();
-
+            printLogger("System is uploading the file/folder... ");
             long filesize = new System.IO.FileInfo(clientText.Text).Length;
             string filename = Path.GetFileName(clientText.Text);
 

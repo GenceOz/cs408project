@@ -94,10 +94,6 @@ namespace server
          */
         private void initalizeListening()
         {
-            //Create a folder in the given path
-            string path = TextBox_Path.Text;
-            createDirectoryInPath(path);
-
             //Binding the socket to ip and given port name, puts the socket in listening state
             int portNumber =  (int)Numeric_Port.Value;
             epLocal = new IPEndPoint(IPAddress.Parse(getLocalIP()), portNumber);
@@ -194,7 +190,7 @@ namespace server
             sendResultToClient(socket,0);
 
             printLogger("Checking for existing directory of user: " + username);
-            createDirectoryInPath(TextBox_Path.Text + "\\" + username);
+            createDirectoryInPath(serverPath.Text + "\\" + username);
 
             bool isClientConnected = true;
             while (isClientConnected)
@@ -245,7 +241,7 @@ namespace server
              * the file transfer is completed.
              */ 
             byte[] data = new byte[8 * 1024];
-            FileStream stream = File.Create(TextBox_Path.Text + "\\" + username + "\\" + filename);
+            FileStream stream = File.Create(serverPath.Text + "\\" + username + "\\" + filename);
             try
             {
                 long bytesLeftToTransfer = fileSize;
@@ -271,7 +267,7 @@ namespace server
             {
                 MessageBox.Show("Socket Exception occured");
                 stream.Close();
-                File.Delete(TextBox_Path.Text + "\\" + username + "\\" + filename);
+                File.Delete(serverPath.Text + "\\" + username + "\\" + filename);
                 printLogger("Corruped filed deleting ");
                 termianteUserConnection(socket, username);
                 return false;
@@ -353,6 +349,19 @@ namespace server
         private void sendResultToClient(Socket socket, Int32 result)
         {
             socket.Send(BitConverter.GetBytes(result));
+        }
+
+        private void serverBrowse_Click(object sender, EventArgs e)
+        {
+
+            string folderPath = "";
+            FolderBrowserDialog folderBrowserDialog1 = new FolderBrowserDialog();
+            if (folderBrowserDialog1.ShowDialog() == DialogResult.OK)
+            {
+                folderPath = folderBrowserDialog1.SelectedPath;
+                serverPath.Text = folderPath;
+                printLogger("You chose the path " + folderPath + " to upload items.");
+            }
         }
     }
 }
