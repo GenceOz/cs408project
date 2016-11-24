@@ -138,6 +138,7 @@ namespace server
                 try
                 {
                     Socket dataTransferSocket = socket.Accept();
+                    printLogger("A new incomming connection accepted");
                     Thread clientConnectionThread = new Thread(new ParameterizedThreadStart(handleUserConnection));
                     clientConnectionThread.Start(dataTransferSocket);
                 }
@@ -156,12 +157,17 @@ namespace server
         private void handleUserConnection(Object socketObj)
         {
             Socket socket = (Socket)socketObj;
-            printLogger("Handle user connection entered");
             //Recieves the username, filename and filesize to establish the connection
             byte[] handshakeInfo = new byte[128];
             try
             {
-                socket.Receive(handshakeInfo);
+                int recievedData = socket.Receive(handshakeInfo);
+                //If 0 bytes are recieved connection is dropped
+                if (recievedData == 0)
+                {
+                    MessageBox.Show("Client disconnected");
+                    return;
+                }
             }
             catch (Exception exc)
             {
@@ -185,6 +191,7 @@ namespace server
 
             //Add the username in the list
             connectedUsers.Add(username);
+            sendResultToClient(socket,0);
 
             printLogger("Checking for existing directory of user: " + username);
             createDirectoryInPath(TextBox_Path.Text + "\\" + username);
@@ -211,7 +218,14 @@ namespace server
             byte[] fileInfo = new byte[128];
             try
             {
-                 socket.Receive(fileInfo);
+                 int recievedData = socket.Receive(fileInfo);
+                //If 0 bytes recieved socket connection is lost
+                 if (recievedData == 0)
+                 {
+                     MessageBox.Show("Client disconnected");
+                     termianteUserConnection(socket, username);
+                     return false;
+                 }
             }
             catch (Exception exc)
             {
@@ -222,7 +236,7 @@ namespace server
             //Parsing filename and fileSize
             int filenameSize = BitConverter.ToInt32(fileInfo.Take(4).ToArray(), 0);
             string filename = encoder.GetString(fileInfo.Skip(4).Take(filenameSize).ToArray());
-            int fileSize = BitConverter.ToInt32(fileInfo.Skip(4 + filenameSize).Take(4).ToArray(), 0);
+            long fileSize = BitConverter.ToInt64(fileInfo.Skip(4 + filenameSize).Take(sizeof(long)).ToArray(), 0);
 
             printLogger("File transfer started for user:" + username + " filesize: " + fileSize);
             
@@ -230,30 +244,35 @@ namespace server
              * Recieves the file in chunks of 2KB, it continues to recieve until 
              * the file transfer is completed.
              */ 
-            byte[] data = new byte[2048];
+            byte[] data = new byte[8 * 1024];
             FileStream stream = File.Create(TextBox_Path.Text + "\\" + username + "\\" + filename);
             try
             {
-                int bytesLeftToTransfer = fileSize;
+                long bytesLeftToTransfer = fileSize;
                 printLogger("Filesize: " + fileSize);
+
                 while (bytesLeftToTransfer > 0)
                 {
-                    printLogger("BytesLeftToTransfer " + bytesLeftToTransfer);
-                    int amountOfBytes = socket.Receive(data);
-                    printLogger("*");
-                    int bytesToCopy = Math.Min(amountOfBytes, bytesLeftToTransfer);
-                    stream.Write(data, 0, bytesToCopy);
+                    long amountOfBytes = socket.Receive(data);
+                    //If 0 bytes is recieved socket connection is dropped
+                    if (amountOfBytes == 0)
+                    {
+                        MessageBox.Show("Client disconnected");
+                        throw new SocketException();
+                    }
+                    long bytesToCopy = Math.Min(amountOfBytes, bytesLeftToTransfer);
+                    stream.Write(data, 0, (int)bytesToCopy);
                     bytesLeftToTransfer -= bytesToCopy;
-                    printLogger("RecievedBytes " + amountOfBytes + " " + bytesLeftToTransfer);
                 }
-                printLogger("Stream closed");
+                printLogger("Stream closed for " + username);
                 stream.Close();
             }
             catch (SocketException exc)
             {
-                MessageBox.Show("Socket Exception occured: " + exc.Message);
+                MessageBox.Show("Socket Exception occured");
                 stream.Close();
                 File.Delete(TextBox_Path.Text + "\\" + username + "\\" + filename);
+                printLogger("Corruped filed deleting ");
                 termianteUserConnection(socket, username);
                 return false;
             }
@@ -270,7 +289,6 @@ namespace server
 
         /*
          *  This method terminates the sockets 
-         *  TODO: Notify the client about socket termination
          */
         private void terminateSocket(Socket sck)
         {
@@ -282,7 +300,7 @@ namespace server
         {
             initalizeListening();
             Button_Start.Enabled = false;
-            Button_Stop.Enabled = true;
+            //Button_Stop.Enabled = true;
         }
 
         private void serverForm_Load(object sender, EventArgs e)
@@ -327,8 +345,14 @@ namespace server
 
         private void termianteUserConnection(Socket socket, string username)
         {
+            sendResultToClient(socket,1);
             terminateSocket(socket);
             removeFromUserList(username);
+        }
+
+        private void sendResultToClient(Socket socket, Int32 result)
+        {
+            socket.Send(BitConverter.GetBytes(result));
         }
     }
 }
