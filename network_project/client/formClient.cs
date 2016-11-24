@@ -37,12 +37,6 @@ namespace myClient
             clientBox.AppendText(now + "--> " + message + "\n");
         }
 
-        private void clientConnect_Click(object sender, EventArgs e)
-        {
-            cliSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            cliSocket.Connect(clientIP.Text, Convert.ToInt32(clientPort.Text)); 
-        }
-
         private void clientBrowse_Click(object sender, EventArgs e)
         {
             printLogger("You are connected to the system as " + clientUsername.Text + ".");
