@@ -2,7 +2,7 @@
  * Author: Gence Özer 
  * Date: 11/19/2016
  */
-
+//Server disconnect client notify, stop listening
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -169,6 +169,7 @@ namespace server
             catch (Exception exc)
             {
                 MessageBox.Show("Socket exception occured: " + exc.Message);
+                return;
             }
 
             UTF8Encoding encoder = new UTF8Encoding();
@@ -190,13 +191,209 @@ namespace server
             connectedUsers.Add(username);
             sendResultToClient(socket,0);
 
+            byte[] operationInfo = new byte[128];
+            try
+            {
+                int recievedData = socket.Receive(operationInfo);
+                //If 0 bytes are recieved connection is dropped
+                if (recievedData == 0)
+                {
+                    MessageBox.Show("Client disconnected");
+                    return;
+                }
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Socket exception occured: " + exc.Message);
+                return;
+            }
+
             printLogger("Checking for existing directory of user: " + username);
             createDirectoryInPath(serverPath.Text + "\\" + username);
+            
+            //Parsing operation type
+            //BRW,DEL,RNM,DWN,UPL are possible operation types
+            //Parsing username  
+            string operation = encoder.GetString(operationInfo.Take(3).ToArray());
 
-            bool isClientConnected = true;
-            while (isClientConnected)
+            switch (operation)
             {
-                isClientConnected = transferData(socketObj,username);
+                //File upload operation
+                case "UPL":
+                    transferData(socketObj,username);
+                    break;
+                //File list browse opeation
+                case "BRW":
+                    requestFileList(socketObj,username);
+                    break;
+                //File delete operation
+                case "DEL":
+                    //Parse the file to be deleted
+                    Int32 filenameSize = Int32.Parse(encoder.GetString(operationInfo.Skip(4).Take(4).ToArray()));
+                    string filename = encoder.GetString(operationInfo.Skip(4 + 4).Take(filenameSize).ToArray());
+                    deleteFile(socketObj,username,filename);
+
+                    break;
+                //File rename operaiton
+                case "RNM":
+                    //Parse the file to be renamed
+                    filenameSize = Int32.Parse(encoder.GetString(operationInfo.Skip(4).Take(4).ToArray()));
+                    filename = encoder.GetString(operationInfo.Skip(4 + 4).Take(filenameSize).ToArray());
+                    //Parse the new filename
+                    Int32 newFilenameSize = Int32.Parse(encoder.GetString(operationInfo.Skip(4 + 4 + filenameSize).Take(4).ToArray()));
+                    string newFilename = encoder.GetString(operationInfo.Skip(4 + 4 + filenameSize + 4).Take(newFilenameSize).ToArray());
+                    renameFile(socketObj, username, filename, newFilename);
+                    break;
+                //File download operation
+                case "DWN":
+                    filenameSize = Int32.Parse(encoder.GetString(operationInfo.Skip(4).Take(4).ToArray()));
+                    filename = encoder.GetString(operationInfo.Skip(4 + 4).Take(filenameSize).ToArray());
+                    dataTransferToClient(socketObj,username,filename);
+                    break;
+                default:
+                    printLogger("Unknown operation type");
+                    break;
+            }
+        }
+
+        /*
+         * This function sends a file list to the client 
+         * The list contains name, size, upload time of each file
+         */
+        private void requestFileList(Object socketObj, string username)
+        {
+            string directoryPath = serverPath.Text + "\\" + username;
+            string[] files =
+                  Directory.GetFiles(directoryPath, "*", SearchOption.AllDirectories);
+
+            //Fill the list with name,size,upload time of the files
+            string list = "";
+            foreach (string filename in files)
+            {
+                FileInfo fileInfo = new System.IO.FileInfo(directoryPath + "\\" + filename);
+                list += filename + " " + fileInfo.Length + " " + fileInfo.LastWriteTime + "\n";
+            }
+
+            //Convert the list into a byte array, get the size of it
+            UTF8Encoding encoder = new UTF8Encoding();
+            byte[] listInBytes = encoder.GetBytes(list);
+            Int32 sizeOfList = listInBytes.Length;
+
+            //Create data to send to client, [listSize, listInBytes]
+            byte[] result = new byte[sizeOfList + 4];
+            Buffer.BlockCopy(BitConverter.GetBytes(sizeOfList), 0, result, 0, 4);
+            Buffer.BlockCopy(listInBytes, 0, listInBytes, 4, listInBytes.Length);
+
+            //Send the list to the client
+            Socket socket = (Socket)socketObj;
+            socket.Send(result);
+        }
+
+        /*
+         * This function deletes the file of the given user
+         * It notifies the client about the completion of the operation
+         */
+        private void deleteFile(Object socketObj, string username, string filename)
+        {
+            Socket socket = (Socket)socketObj;
+            string directoryPath = serverPath.Text + "\\" + username;
+            string filePath = directoryPath + "\\" + filename;
+
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    sendResultToClient(socket, 0);
+                }
+                else
+                {
+                    File.Delete(filePath);
+                }
+            }catch(Exception exc)
+            {
+                MessageBox.Show("Exception occured during delete file operation for user: " +
+                    username + exc.Message);
+                sendResultToClient(socket, 0);
+            }
+            //File deletion is successful
+            sendResultToClient(socket, 1);
+        }
+
+        /*
+         * This function changes the name of the file with the given filename
+         * to newFilename. It notifies the client about the result of the operation
+         */
+        private void renameFile(Object socketObj, string username, string filename, string newFilename)
+        {
+            Socket socket = (Socket)socketObj;
+            string directoryPath = serverPath.Text + "\\" + username;
+            string filePath = directoryPath + "\\" + filename;
+
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    sendResultToClient(socket, 0);
+                }
+                else
+                {
+                    File.Move(filename, newFilename);
+                }
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception occured during rename file operation for user: " +
+                    username + exc.Message);
+                sendResultToClient(socket, 0);
+            }
+            //File rename is successful
+            sendResultToClient(socket, 1);
+        }
+
+        /*
+         * This function sends the file with the given filename to the client
+         * on the end of the socketObj by first sending the filesize, then transfering
+         * the data.
+         */ 
+        private void dataTransferToClient(Object socketObj, string username, string filename)
+        {
+            Socket socket = (Socket)socketObj;
+            string directoryPath = serverPath.Text + "\\" + username;
+            string filePath = directoryPath + "\\" + filename;
+            printLogger("Server is sending the file for user: " + username);
+         
+            //Sending the filesize before hand
+            long filesize = new System.IO.FileInfo(filePath).Length;
+            byte[] filesizeInBytes = BitConverter.GetBytes(filesize);
+            socket.Send(filesizeInBytes);
+            
+            //Sending the file
+            try
+            {
+                socket.BeginSendFile(filePath, new AsyncCallback(FileSendCallback), socket);
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception occured during data transfer: " + exc.Message);
+                return;
+            }
+        }
+
+        private void FileSendCallback(IAsyncResult ar)
+        {
+            // Retrieve the socket from the state object.
+            Socket clientSocket = (Socket)ar.AsyncState;
+            try
+            {
+                clientSocket.EndSendFile(ar);
+                // Complete sending the data to the remote device.
+                printLogger("File transfer complete");
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Socket exception occured.");
+                clientSocket.Shutdown(SocketShutdown.Both);
+                clientSocket.Close();
             }
         }
 
@@ -227,6 +424,7 @@ namespace server
             catch (Exception exc)
             {
                 MessageBox.Show("Socket exception occured: " + exc.Message);
+                return false;
             }
 
             UTF8Encoding encoder = new UTF8Encoding();
