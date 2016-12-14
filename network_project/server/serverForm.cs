@@ -2,7 +2,7 @@
  * Author: Gence Özer 
  * Date: 11/19/2016
  */
-
+//Server disconnect client notify, stop listening
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -19,12 +19,13 @@ using System.Windows.Forms;
 
 namespace server
 {
-    public partial class  serverForm : Form
+    public partial class serverForm : Form
     {
         Socket socket;
         EndPoint epLocal;
         List<string> connectedUsers = new List<String>();
         Thread dispatcherThread;
+        Boolean isStoped = true;
 
         public serverForm()
         {
@@ -38,14 +39,14 @@ namespace server
         private void printLogger(string message)
         {
             string now = DateTime.Now.ToString(@"MM\/dd\/yyyy h\:mm tt");
-            RTextBox_Logs.AppendText(now + "--> "+ message + "\n");
+            RTextBox_Logs.AppendText(now + "--> " + message + "\n");
         }
 
-         /*
-          * This function returns local ip address of the server
-          * If the server is not connected to internet, it returns 
-          * local host ip.
-          */
+        /*
+         * This function returns local ip address of the server
+         * If the server is not connected to internet, it returns 
+         * local host ip.
+         */
         private string getLocalIP()
         {
             IPHostEntry host = Dns.GetHostEntry(Dns.GetHostName());
@@ -95,17 +96,18 @@ namespace server
         private void initalizeListening()
         {
             //Binding the socket to ip and given port name, puts the socket in listening state
-            int portNumber =  (int)Numeric_Port.Value;
+            int portNumber = (int)Numeric_Port.Value;
             epLocal = new IPEndPoint(IPAddress.Parse(getLocalIP()), portNumber);
             try
             {
                 socket.Bind(epLocal);
                 socket.Listen(portNumber);
-            }catch(Exception exc)
+            }
+            catch (Exception exc)
             {
                 MessageBox.Show("Exception occured: " + exc.Message);
             }
-              
+
             // Sets up the thread which will perform the handshake connection with the client 
             try
             {
@@ -118,7 +120,7 @@ namespace server
             catch (Exception exc)
             {
                 MessageBox.Show("Thread failed to start: " + exc.Message);
-            } 
+            }
         }
 
         /*
@@ -128,9 +130,9 @@ namespace server
          * After, thread runs the socket keeps on listening for 
          * new incoming connections.
          */
-        private void dispatchFileTransferOperations() 
+        private void dispatchFileTransferOperations()
         {
-            while (true)
+            while (true && isStoped)
             {
                 try
                 {
@@ -143,7 +145,7 @@ namespace server
                 catch (Exception exc)
                 {
                     MessageBox.Show("Exception occured while listening: " + exc.Message);
-                }    
+                }
             }
         }
 
@@ -169,13 +171,13 @@ namespace server
             catch (Exception exc)
             {
                 MessageBox.Show("Socket exception occured: " + exc.Message);
+                return;
             }
 
             UTF8Encoding encoder = new UTF8Encoding();
             //Parsing username 
             int usernameSize = BitConverter.ToInt32(handshakeInfo.Take(4).ToArray(), 0);
             string username = encoder.GetString(handshakeInfo.Skip(4).Take(usernameSize).ToArray());
-
             printLogger("An incoming connection request from user: " + username);
 
             if (checkUserList(username))
@@ -188,15 +190,216 @@ namespace server
 
             //Add the username in the list
             connectedUsers.Add(username);
-            sendResultToClient(socket,0);
+            sendResultToClient(socket, 0);
 
             printLogger("Checking for existing directory of user: " + username);
             createDirectoryInPath(serverPath.Text + "\\" + username);
 
-            bool isClientConnected = true;
-            while (isClientConnected)
+            while (true)
             {
-                isClientConnected = transferData(socketObj,username);
+                byte[] operationInfo = new byte[128];
+                try
+                {
+                    int recievedData = socket.Receive(operationInfo);
+                    //If 0 bytes are recieved connection is dropped
+                    if (recievedData == 0)
+                    {
+                        MessageBox.Show("Client disconnected");
+                        return;
+                    }
+                }
+                catch (Exception exc)
+                {
+                    MessageBox.Show("Socket exception occured: " + exc.Message);
+                    return;
+                }
+
+                //Parsing operation type
+                //BRW,DEL,RNM,DWN,UPL are possible operation types
+                //Parsing username  
+                string operation = encoder.GetString(operationInfo.Take(3).ToArray());
+
+                switch (operation)
+                {
+                    //File upload operation
+                    case "UPL":
+                        transferData(socketObj, username);
+                        break;
+                    //File list browse operation
+                    case "BRW":
+                        requestFileList(socketObj, username);
+                        break;
+                    //File delete operation
+                    case "DEL":
+                        //Parse the file to be deleted
+                        int filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
+                        string filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
+                        deleteFile(socketObj, username, filename);
+                        break;
+                    //File rename operation
+                    case "RNM":
+                        //Parse the file to be renamed
+                        filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
+                        filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
+                        int newfilenameSize = BitConverter.ToInt32(operationInfo.Skip(3 + 4 + filenameSize).Take(4).ToArray(), 0);
+                        string newFilename = encoder.GetString(operationInfo.Skip(3 + 4 + filenameSize + 4).Take(newfilenameSize).ToArray());
+                        renameFile(socketObj, username, filename, newFilename);
+                        break;
+                    //File download operation
+                    case "DWN":
+                        //Parse the file to be downloaded
+                        filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
+                        filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
+                        dataTransferToClient(socketObj, username, filename);
+                        break;
+                    default:
+                        printLogger("Unknown operation type");
+                        break;
+                }
+            }
+        }
+
+        /*
+         * This function sends a file list to the client 
+         * The list contains name, size, upload time of each file
+         */
+        private void requestFileList(Object socketObj, string username)
+        {
+            Socket socket = (Socket)socketObj;
+            string directoryPath = serverPath.Text + "\\" + username;
+            string[] files = Directory.GetFiles(directoryPath, "*", SearchOption.AllDirectories);
+
+            //Fill the list with name,size,upload time of the files
+            string list = "";
+            foreach (string filename in files)
+            {
+                try
+                {
+                    FileInfo fileInfo = new System.IO.FileInfo(filename);
+                    list += filename.Remove(0, directoryPath.Length + 1) + " " + fileInfo.Length + " " + fileInfo.LastWriteTime + "\n";
+                }
+                catch (Exception exc)
+                {
+                    MessageBox.Show("Exception occured during view file operation for user: " + username + exc.Message);
+                    MessageBox.Show(directoryPath + "\\" + filename);
+                }
+                
+            }
+            //Convert the list into a byte array, get the size of it
+            UTF8Encoding encoder = new UTF8Encoding();
+            byte[] listInBytes = encoder.GetBytes(list);
+            byte[] result = new byte[1024];
+            //Send the list to the client
+            printLogger("Server is sending the requested list view...");
+            socket.Send(listInBytes);
+            printLogger("List view is sent succesfully.");
+        }
+
+        /*
+         * This function deletes the file of the given user
+         * It notifies the client about the completion of the operation
+         */
+        private void deleteFile(Object socketObj, string username, string filename)
+        {
+            Socket socket = (Socket)socketObj;
+            string directoryPath = serverPath.Text + "\\" + username;
+            string filePath = directoryPath + "\\" + filename;
+
+            try
+            {
+                if (File.Exists(filePath))
+                {           
+                    File.Delete(filePath);
+                    sendResultToClient(socket, 0);
+                }else
+                { 
+                    //File deletion is successful
+                    sendResultToClient(socket, 1);
+                }
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception occured during delete file operation for user: " + username + exc.Message);
+                sendResultToClient(socket, 1);
+            }
+        }
+
+        /*
+         * This function changes the name of the file with the given filename
+         * to newFilename. It notifies the client about the result of the operation
+         */
+        private void renameFile(Object socketObj, string username, string filename, string newFilename)
+        {
+            Socket socket = (Socket)socketObj;
+            string filePath = "C:\\Users\\eylulyurdakul\\Desktop" + "\\" + username + "\\" + filename;
+            string newFilePath = "C:\\Users\\eylulyurdakul\\Desktop" + "\\" + username + "\\" + newFilename;
+
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    File.Move(filePath, newFilePath);
+                    //File rename is successful
+                    sendResultToClient(socket, 0);
+                }
+                else
+                {
+                    //File not exist notify client
+                    sendResultToClient(socket, 1);
+                }
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception occured during rename file operation for user: " + username + exc.Message);
+                sendResultToClient(socket, 1);
+                return;
+            }  
+        }
+
+        /*
+         * This function sends the file with the given filename to the client
+         * on the end of the socketObj by first sending the filesize, then transfering
+         * the data.
+         */
+        private void dataTransferToClient(Object socketObj, string username, string filename)
+        {
+            Socket socket = (Socket)socketObj;
+            string directoryPath = serverPath.Text + "\\" + username;
+            string filePath = directoryPath + "\\" + filename;
+            printLogger("Server is sending the file " + filename + " for user: " + username);
+
+            //Sending file size beforehand
+            long filesize = new FileInfo(filePath).Length;
+            byte[] filesizeInBytes = BitConverter.GetBytes(filesize);
+            socket.Send(filesizeInBytes);
+           
+            //Sending the file
+            try
+            {
+                socket.BeginSendFile(filePath, new AsyncCallback(FileSendCallback), socket);
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception occured during data transfer: " + exc.Message);
+                return;
+            }
+        }
+
+        private void FileSendCallback(IAsyncResult ar)
+        {
+            // Retrieve the socket from the state object.
+            Socket clientSocket = (Socket)ar.AsyncState;
+            try
+            {
+                clientSocket.EndSendFile(ar);
+                // Complete sending the data to the remote device.
+                printLogger("File transfer complete");
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Socket exception occured.");
+                clientSocket.Shutdown(SocketShutdown.Both);
+                clientSocket.Close();
             }
         }
 
@@ -211,22 +414,23 @@ namespace server
         private bool transferData(Object socketObj, string username)
         {
             Socket socket = (Socket)socketObj;
-             
+
             byte[] fileInfo = new byte[128];
             try
             {
-                 int recievedData = socket.Receive(fileInfo);
+                int recievedData = socket.Receive(fileInfo);
                 //If 0 bytes recieved socket connection is lost
-                 if (recievedData == 0)
-                 {
-                     MessageBox.Show("Client disconnected");
-                     termianteUserConnection(socket, username);
-                     return false;
-                 }
+                if (recievedData == 0)
+                {
+                    MessageBox.Show("Client disconnected");
+                    termianteUserConnection(socket, username);
+                    return false;
+                }
             }
             catch (Exception exc)
             {
                 MessageBox.Show("Socket exception occured: " + exc.Message);
+                return false;
             }
 
             UTF8Encoding encoder = new UTF8Encoding();
@@ -235,12 +439,12 @@ namespace server
             string filename = encoder.GetString(fileInfo.Skip(4).Take(filenameSize).ToArray());
             long fileSize = BitConverter.ToInt64(fileInfo.Skip(4 + filenameSize).Take(sizeof(long)).ToArray(), 0);
 
-            printLogger("File transfer started for user:" + username + " filesize: " + fileSize);
-            
+            printLogger("File transfer started for user: " + username + " \n" + "Filesize: " + fileSize);
+
             /*
              * Recieves the file in chunks of 2KB, it continues to recieve until 
              * the file transfer is completed.
-             */ 
+             */
             byte[] data = new byte[8 * 1024];
             FileStream stream = File.Create(serverPath.Text + "\\" + username + "\\" + filename);
             try
@@ -269,7 +473,7 @@ namespace server
                 MessageBox.Show("Socket Exception occured");
                 stream.Close();
                 File.Delete(serverPath.Text + "\\" + username + "\\" + filename);
-                printLogger("Corruped filed deleting ");
+                printLogger("Corrupted filed is being deleted ");
                 termianteUserConnection(socket, username);
                 return false;
             }
@@ -281,8 +485,8 @@ namespace server
             }
             printLogger("File transfer finished for user:" + username);
             return true;
-         }
-        
+        }
+
 
         /*
          *  This method terminates the sockets 
@@ -313,6 +517,7 @@ namespace server
         private void Button_Stop_Click(object sender, EventArgs e)
         {
             terminateSocket(socket);
+            isStoped = false;
             Button_Stop.Enabled = false;
             Button_Start.Enabled = true;
         }
@@ -323,9 +528,9 @@ namespace server
          */
         private bool checkUserList(string nameToCheck)
         {
-            foreach(string clientName in connectedUsers)
+            foreach (string clientName in connectedUsers)
             {
-                if (clientName.Equals(nameToCheck)) 
+                if (clientName.Equals(nameToCheck))
                 {
                     // User name exists in the list return true
                     return true;
@@ -342,7 +547,7 @@ namespace server
 
         private void termianteUserConnection(Socket socket, string username)
         {
-            sendResultToClient(socket,1);
+            sendResultToClient(socket, 1);
             terminateSocket(socket);
             removeFromUserList(username);
         }
