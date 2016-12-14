@@ -16,7 +16,7 @@ namespace myClient
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new formClient());
+            Application.Run(new clientDownloadPath());
         }
     }
 }
