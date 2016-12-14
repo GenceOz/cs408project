@@ -87,7 +87,7 @@
             this.RTextBox_Logs.Location = new System.Drawing.Point(132, 207);
             this.RTextBox_Logs.Margin = new System.Windows.Forms.Padding(4);
             this.RTextBox_Logs.Name = "RTextBox_Logs";
-            this.RTextBox_Logs.Size = new System.Drawing.Size(550, 189);
+            this.RTextBox_Logs.Size = new System.Drawing.Size(550, 299);
             this.RTextBox_Logs.TabIndex = 4;
             this.RTextBox_Logs.Text = "";
             // 
@@ -148,7 +148,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(748, 411);
+            this.ClientSize = new System.Drawing.Size(772, 553);
             this.Controls.Add(this.serverBrowse);
             this.Controls.Add(this.Button_Stop);
             this.Controls.Add(this.Button_Start);
