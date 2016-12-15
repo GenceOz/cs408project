@@ -262,6 +262,11 @@ namespace myClient
             UTF8Encoding encoder = new UTF8Encoding();
             //Parsing filename and fileSize 
             long fileSize = BitConverter.ToInt64(fileInfo.Take(sizeof(long)).ToArray(), 0);
+            if (fileSize == 0)
+            {
+                printLogger("File not found");
+                return false;
+            }
             printLogger("File transfer started for user: " + username + " \n" + "Filesize: " + fileSize);
             byte[] data = new byte[8 * 1024];
             FileStream stream = File.Create(clientDownPath.Text + "\\" + filename);
