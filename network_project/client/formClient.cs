@@ -153,56 +153,81 @@ namespace myClient
             }
         }
 
+        private void socketConnected()
+        {
+            while (true)
+            {
+                try
+                {
+                    Thread.Sleep(3000);
+                    bool part1 = cliSocket.Poll(1000, SelectMode.SelectRead);
+                    bool part2 = (cliSocket.Available == 0);
+                    if (part1 && part2)
+                    {
+                        MessageBox.Show("Server disconnected");
+                        clientConnect.Text = "Connect";
+                        clientConnect.BackColor = DefaultBackColor;
+                        clientSend.Enabled = false;
+                        cliSocket.Shutdown(SocketShutdown.Both);
+                        cliSocket.Close();
+                        return;
+                    }
+                }
+                catch (Exception exc)
+                {
+                    MessageBox.Show("Server disconnected");
+                    return;
+                }
+            }       
+        }
+
         private void clientConnect_Click_1(object sender, EventArgs e)
         {
             if (clientConnect.Text == "Connect")   
             {
-
                 try
-                {
-                    if (clientIP.Text != getLocalIP())
+                {         
+                    cliSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    cliSocket.Connect(clientIP.Text, Convert.ToInt32(clientPort.Text));
+
+                    ASCIIEncoding aEncoder = new ASCIIEncoding();
+                    string username = clientUsername.Text;
+                    byte[] usernameInBytes = aEncoder.GetBytes(username);
+                    byte[] usernameInfo = new byte[4 + username.Length];  //  usernamein sizeı için buradaki 4
+
+                    //Filling usernameData byte array
+                    Buffer.BlockCopy(BitConverter.GetBytes(usernameInBytes.Length), 0, usernameInfo, 0, 4);
+                    Buffer.BlockCopy(usernameInBytes, 0, usernameInfo, 4, usernameInBytes.Length);
+
+                    try
                     {
-                        MessageBox.Show("The IP you entered is not valid in this context.");
-                        return;
-                    }
-                    else
-                    { 
-                        cliSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                        cliSocket.Connect(clientIP.Text, Convert.ToInt32(clientPort.Text));
-
-                        ASCIIEncoding aEncoder = new ASCIIEncoding();
-                        string username = clientUsername.Text;
-                        byte[] usernameInBytes = aEncoder.GetBytes(username);
-                        byte[] usernameInfo = new byte[4 + username.Length];  //  usernamein sizeı için buradaki 4
-
-                        //Filling usernameData byte array
-                        Buffer.BlockCopy(BitConverter.GetBytes(usernameInBytes.Length), 0, usernameInfo, 0, 4);
-                        Buffer.BlockCopy(usernameInBytes, 0, usernameInfo, 4, usernameInBytes.Length);
-
-                        try
+                        cliSocket.Send(usernameInfo);
+                        byte[] result = new byte[4];
+                        cliSocket.Receive(result);
+                        if (BitConverter.ToInt32(result, 0).Equals(1))
                         {
-                            cliSocket.Send(usernameInfo);
-                            byte[] result = new byte[4];
-                            cliSocket.Receive(result);
-                            if (BitConverter.ToInt32(result, 0).Equals(1))
-                            {
-                                MessageBox.Show("Connection refused. Your username is not unique");
-                                cliSocket.Shutdown(SocketShutdown.Both);
-                                cliSocket.Close();
-                                return;
-                            }
-
-                        }
-                        catch (Exception exc)
-                        {
-                            MessageBox.Show("Exception occured during data transfer: " + exc.Message);
+                            MessageBox.Show("Connection refused. Your username is not unique");
+                            cliSocket.Shutdown(SocketShutdown.Both);
+                            cliSocket.Close();
                             return;
                         }
-                        clientConnect.Text = "Disconnect!";
-                        clientConnect.BackColor = Color.PaleVioletRed;
-                        clientSend.Enabled = true;
+
                     }
+                    catch (Exception exc)
+                    {
+                        MessageBox.Show("Exception occured during data transfer: " + exc.Message);
+                        return;
+                    }
+                    clientConnect.Text = "Disconnect!";
+                    clientConnect.BackColor = Color.PaleVioletRed;
+                    clientSend.Enabled = true;
+
+                    //Create a thread that checks the connection with server
+                    Thread pollingThread = new Thread(new ThreadStart(socketConnected));
+                    pollingThread.IsBackground = true;
+                    pollingThread.Start();
                 }
+                
                 catch
                 {
                     MessageBox.Show("ERROR: UNABLE TO CONNECT");
