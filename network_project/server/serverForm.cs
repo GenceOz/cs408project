@@ -394,6 +394,12 @@ namespace server
             {
                 if (File.Exists(filePath))
                 {
+                    //If the new name already exists in server abort
+                    if (File.Exists(newFilePath))
+                    {
+                        sendResultToClient(socket, 1);
+                        return;
+                    }
                     File.Move(filePath, newFilePath);
                     //File rename is successful
                     sendResultToClient(socket, 0);
