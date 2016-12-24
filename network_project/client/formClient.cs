@@ -29,7 +29,6 @@ namespace myClient
             InitializeComponent();
             TextBox.CheckForIllegalCrossThreadCalls = false;
             clientPort.Text = "8888";
-            clientIP.Text = "10.50.79.217";
         }
 
         private void printLogger(string message)
@@ -127,13 +126,65 @@ namespace myClient
             clientView.Enabled = false;
         }
 
+
+        private string getLocalIP()
+        {
+            IPHostEntry host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (IPAddress ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    printLogger("Client ip: " + ip.ToString());
+                    return ip.ToString();
+                }
+            }
+            printLogger("Client ip: 127.0.0.1 ");
+            return "127.0.0.1";
+        }
+        private void clientNotification()
+        {
+            byte[] notification = new byte[128];
+            int receivedData = cliSocket.Receive(notification);
+            if (receivedData != 0)
+            {
+                MessageBox.Show("Server stopped listening.");
+            }
+        }
+
+        private void socketConnected()
+        {
+            while (true)
+            {
+                try
+                {
+                    Thread.Sleep(3000);
+                    bool part1 = cliSocket.Poll(1000, SelectMode.SelectRead);
+                    bool part2 = (cliSocket.Available == 0);
+                    if (part1 && part2)
+                    {
+                        MessageBox.Show("Server disconnected");
+                        clientConnect.Text = "Connect";
+                        clientConnect.BackColor = DefaultBackColor;
+                        clientSend.Enabled = false;
+                        cliSocket.Shutdown(SocketShutdown.Both);
+                        cliSocket.Close();
+                        return;
+                    }
+                }
+                catch (Exception exc)
+                {
+                    MessageBox.Show("Server disconnected");
+                    return;
+                }
+            }       
+        }
+
         private void clientConnect_Click_1(object sender, EventArgs e)
         {
             if (clientConnect.Text == "Connect")   
             {
                 try
-                {
-                    
+                {         
                     cliSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                     cliSocket.Connect(clientIP.Text, Convert.ToInt32(clientPort.Text));
 
@@ -151,14 +202,13 @@ namespace myClient
                         cliSocket.Send(usernameInfo);
                         byte[] result = new byte[4];
                         cliSocket.Receive(result);
-                        if(BitConverter.ToInt32(result,0).Equals(1))
+                        if (BitConverter.ToInt32(result, 0).Equals(1))
                         {
                             MessageBox.Show("Connection refused. Your username is not unique");
                             cliSocket.Shutdown(SocketShutdown.Both);
                             cliSocket.Close();
                             return;
                         }
-
                     }
                     catch (Exception exc)
                     {
@@ -168,7 +218,13 @@ namespace myClient
                     clientConnect.Text = "Disconnect!";
                     clientConnect.BackColor = Color.PaleVioletRed;
                     clientSend.Enabled = true;
+
+                    //Create a thread that checks the connection with server
+                    Thread pollingThread = new Thread(new ThreadStart(socketConnected));
+                    pollingThread.IsBackground = true;
+                    pollingThread.Start();
                 }
+                
                 catch
                 {
                     MessageBox.Show("ERROR: UNABLE TO CONNECT");
@@ -262,6 +318,12 @@ namespace myClient
             UTF8Encoding encoder = new UTF8Encoding();
             //Parsing filename and fileSize 
             long fileSize = BitConverter.ToInt64(fileInfo.Take(sizeof(long)).ToArray(), 0);
+
+            if (fileSize == 0)
+            {
+                printLogger("File not found");
+                return false;
+            }
             printLogger("File transfer started for user: " + username + " \n" + "Filesize: " + fileSize);
             byte[] data = new byte[8 * 1024];
             FileStream stream = File.Create(clientDownPath.Text + "\\" + filename);

@@ -25,8 +25,8 @@ namespace server
         EndPoint epLocal;
         List<string> connectedUsers = new List<String>();
         Thread dispatcherThread;
-        Boolean isStoped = true;
-
+        private static Mutex mut = new Mutex();
+        
         public serverForm()
         {
             InitializeComponent();
@@ -106,6 +106,7 @@ namespace server
             catch (Exception exc)
             {
                 MessageBox.Show("Exception occured: " + exc.Message);
+                return;
             }
 
             // Sets up the thread which will perform the handshake connection with the client 
@@ -120,6 +121,7 @@ namespace server
             catch (Exception exc)
             {
                 MessageBox.Show("Thread failed to start: " + exc.Message);
+                return;
             }
         }
 
@@ -137,16 +139,49 @@ namespace server
                 try
                 {
                     Socket dataTransferSocket = socket.Accept();
+                    mut.WaitOne();
                     printLogger("A new incomming connection accepted");
                     Thread clientConnectionThread = new Thread(new ParameterizedThreadStart(handleUserConnection));
                     clientConnectionThread.IsBackground = true;
                     clientConnectionThread.Start(dataTransferSocket);
+                    mut.ReleaseMutex();
+                }
+                catch (ThreadInterruptedException exc)
+                {
+                    printLogger("Thread is stopping listening");
+                    break;
                 }
                 catch (Exception exc)
                 {
                     MessageBox.Show("Exception occured while listening: " + exc.Message);
                 }
             }
+        }
+
+        /*
+         * Utility function to check whether socket is still connected
+         */
+        bool socketConnected(Socket s)
+        {
+            try
+            {
+
+                bool part1 = s.Poll(1000, SelectMode.SelectRead);
+                bool part2 = (s.Available == 0);
+                if (part1 && part2)
+                {
+                    return false;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+            catch(Exception exc)
+            {
+                MessageBox.Show("Exception occured while polling");
+            }
+            return false;
         }
 
         /*
@@ -197,6 +232,13 @@ namespace server
 
             while (true)
             {
+
+                //If connection terminated exit the loop
+                if (!socketConnected(socket))
+                {
+                    removeFromUserList(username);
+                    break;
+                }
                 byte[] operationInfo = new byte[128];
                 try
                 {
@@ -205,12 +247,14 @@ namespace server
                     if (recievedData == 0)
                     {
                         MessageBox.Show("Client disconnected");
+                        removeFromUserList(username);
                         return;
                     }
                 }
                 catch (Exception exc)
                 {
                     MessageBox.Show("Socket exception occured: " + exc.Message);
+                    removeFromUserList(username);
                     return;
                 }
 
@@ -285,13 +329,24 @@ namespace server
                 }
                 
             }
+            if (list == "")
+            {
+                list = "No file found";
+            }
             //Convert the list into a byte array, get the size of it
             UTF8Encoding encoder = new UTF8Encoding();
             byte[] listInBytes = encoder.GetBytes(list);
             byte[] result = new byte[1024];
             //Send the list to the client
             printLogger("Server is sending the requested list view...");
-            socket.Send(listInBytes);
+            try
+            {
+                socket.Send(listInBytes);
+            }
+            catch(Exception exc)
+            {
+                MessageBox.Show("Client disconnected : "+ exc.Message);
+            }
             printLogger("List view is sent succesfully.");
         }
 
@@ -331,13 +386,21 @@ namespace server
         private void renameFile(Object socketObj, string username, string filename, string newFilename)
         {
             Socket socket = (Socket)socketObj;
-            string filePath = "C:\\Users\\eylulyurdakul\\Desktop" + "\\" + username + "\\" + filename;
-            string newFilePath = "C:\\Users\\eylulyurdakul\\Desktop" + "\\" + username + "\\" + newFilename;
+            string directoryPath = serverPath.Text + "\\" + username;
+            string filePath = directoryPath + "\\" + filename;
+            string newFilePath = directoryPath + "\\" + newFilename;
 
             try
             {
                 if (File.Exists(filePath))
                 {
+                    //If the new name already exists in server abort
+                    if (File.Exists(newFilePath))
+                    {
+                        sendResultToClient(socket, 1);
+                        return;
+                    }
+
                     File.Move(filePath, newFilePath);
                     //File rename is successful
                     sendResultToClient(socket, 0);
@@ -368,14 +431,20 @@ namespace server
             string filePath = directoryPath + "\\" + filename;
             printLogger("Server is sending the file " + filename + " for user: " + username);
 
+            if (!File.Exists(filePath))
+            {
+                //No file found
+                socket.Send(BitConverter.GetBytes(0));
+                return;
+            }
+
             //Sending file size beforehand
             long filesize = new FileInfo(filePath).Length;
-            byte[] filesizeInBytes = BitConverter.GetBytes(filesize);
-            socket.Send(filesizeInBytes);
-           
+            byte[] filesizeInBytes = BitConverter.GetBytes(filesize);           
             //Sending the file
             try
             {
+                socket.Send(filesizeInBytes);
                 socket.BeginSendFile(filePath, new AsyncCallback(FileSendCallback), socket);
             }
             catch (Exception exc)
@@ -499,25 +568,54 @@ namespace server
 
         private void Button_Start_Click(object sender, EventArgs e)
         {
-            initalizeListening();
-            Button_Start.Enabled = false;
-            //Button_Stop.Enabled = true;
+            if (Button_Start.Text == "Start Listening")
+            {
+                initalizeListening();
+                //Button_Start.Enabled = false;
+                //Button_Stop.Enabled = true;
+                Button_Start.Text = "Stop Listening";
+            }
+            else
+            {
+                int clientnumber = connectedUsers.Count;
+                if (clientnumber > 0)
+                {
+                    DialogResult DR = MessageBox.Show("There are " + clientnumber + " client(s) connected to server.\n Are you sure ?", "WARNING", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);
+                    if (DR == DialogResult.Yes)
+                    {
+
+                        foreach (string c in connectedUsers)
+                        {
+                            //    
+                        }
+                        connectedUsers.Clear();
+                        terminateSocket(socket);
+                        socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                        printLogger("Server stopped listening at port " + Numeric_Port.Value + ".\r\n");
+                        Button_Start.Text = "Start Listening";
+                        //textBox1.Enabled = true;
+
+                    }
+                }
+            }
         }
 
         private void serverForm_Load(object sender, EventArgs e)
         {
             TextBox.CheckForIllegalCrossThreadCalls = false;
             Button_Stop.Enabled = false;
-
+            Numeric_Port.Value = 8888;
             //Creating a socket to listen the incoming requests
             socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);           
         }
 
         private void Button_Stop_Click(object sender, EventArgs e)
         {
-            terminateSocket(socket);
-            isStoped = false;
+            mut.WaitOne();
+            dispatcherThread.Interrupt();
+            mut.ReleaseMutex();
+
             Button_Stop.Enabled = false;
             Button_Start.Enabled = true;
         }
@@ -559,7 +657,6 @@ namespace server
 
         private void serverBrowse_Click(object sender, EventArgs e)
         {
-
             string folderPath = "";
             FolderBrowserDialog folderBrowserDialog1 = new FolderBrowserDialog();
             if (folderBrowserDialog1.ShowDialog() == DialogResult.OK)
@@ -567,6 +664,33 @@ namespace server
                 folderPath = folderBrowserDialog1.SelectedPath;
                 serverPath.Text = folderPath;
                 printLogger("You chose the path " + folderPath + " to upload items.");
+            }
+        }
+
+        private void serverForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            int clientnumber = connectedUsers.Count;
+            if (clientnumber > 0)
+            {
+                DialogResult DR = MessageBox.Show("There are " + clientnumber + " client(s) connected to server.\n Are you sure ?", "WARNING", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);
+                if (DR == DialogResult.Yes)
+                {
+                    System.Environment.Exit(1);
+                }
+                else
+                {
+                    e.Cancel = true;
+                }
+            }
+            else if (clientnumber == 0)
+            {
+                DialogResult DR = MessageBox.Show("Are you sure ?", "Server ShutDown", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (DR == DialogResult.Yes)
+                {
+                    System.Environment.Exit(1);
+                }
+                else
+                    e.Cancel = true;
             }
         }
     }

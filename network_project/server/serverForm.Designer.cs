@@ -132,7 +132,6 @@
             this.Button_Stop.TabIndex = 9;
             this.Button_Stop.Text = "Stop Listening";
             this.Button_Stop.UseVisualStyleBackColor = true;
-            this.Button_Stop.Click += new System.EventHandler(this.Button_Stop_Click);
             // 
             // serverBrowse
             // 
@@ -162,6 +161,7 @@
             this.Margin = new System.Windows.Forms.Padding(4);
             this.Name = "serverForm";
             this.Text = "ServerGUI";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.serverForm_FormClosing);
             this.Load += new System.EventHandler(this.serverForm_Load);
             ((System.ComponentModel.ISupportInitialize)(this.Numeric_Port)).EndInit();
             this.ResumeLayout(false);
