@@ -26,7 +26,7 @@ namespace server
         List<string> connectedUsers = new List<String>();
         Thread dispatcherThread;
         private static Mutex mut = new Mutex();
-
+        
         public serverForm()
         {
             InitializeComponent();
@@ -134,7 +134,7 @@ namespace server
          */
         private void dispatchFileTransferOperations()
         {
-            while (true)
+            while (true && isStoped)
             {
                 try
                 {
@@ -232,13 +232,13 @@ namespace server
 
             while (true)
             {
+
                 //If connection terminated exit the loop
                 if (!socketConnected(socket))
                 {
                     removeFromUserList(username);
                     break;
                 }
-
                 byte[] operationInfo = new byte[128];
                 try
                 {
@@ -400,6 +400,7 @@ namespace server
                         sendResultToClient(socket, 1);
                         return;
                     }
+
                     File.Move(filePath, newFilePath);
                     //File rename is successful
                     sendResultToClient(socket, 0);
@@ -439,8 +440,7 @@ namespace server
 
             //Sending file size beforehand
             long filesize = new FileInfo(filePath).Length;
-            byte[] filesizeInBytes = BitConverter.GetBytes(filesize);
-           
+            byte[] filesizeInBytes = BitConverter.GetBytes(filesize);           
             //Sending the file
             try
             {
@@ -615,6 +615,7 @@ namespace server
             mut.WaitOne();
             dispatcherThread.Interrupt();
             mut.ReleaseMutex();
+
             Button_Stop.Enabled = false;
             Button_Start.Enabled = true;
         }

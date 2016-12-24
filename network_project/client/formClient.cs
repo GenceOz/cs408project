@@ -24,9 +24,7 @@ namespace myClient
         Socket cliSocket;
         byte[] receivedBytes = new byte[2048];
 
-       
-
-    public clientDownloadPath()
+        public clientDownloadPath()
         {
             InitializeComponent();
             TextBox.CheckForIllegalCrossThreadCalls = false;
@@ -211,7 +209,6 @@ namespace myClient
                             cliSocket.Close();
                             return;
                         }
-
                     }
                     catch (Exception exc)
                     {
@@ -321,6 +318,7 @@ namespace myClient
             UTF8Encoding encoder = new UTF8Encoding();
             //Parsing filename and fileSize 
             long fileSize = BitConverter.ToInt64(fileInfo.Take(sizeof(long)).ToArray(), 0);
+
             if (fileSize == 0)
             {
                 printLogger("File not found");
