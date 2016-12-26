@@ -347,7 +347,7 @@ namespace myClient
                 }
                 printLogger("Stream closed for " + username);
                 stream.Close();
-        }
+            }
             catch (SocketException exc)
             {
                 MessageBox.Show("Socket Exception occured");
