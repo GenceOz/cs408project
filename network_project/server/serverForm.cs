@@ -2,7 +2,6 @@
  * Author: Gence Özer 
  * Date: 11/19/2016
  */
-//Server disconnect client notify, stop listening
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -19,6 +18,13 @@ using System.Windows.Forms;
 
 namespace server
 {
+    public struct ClientConnection
+    {
+        public Socket socket;
+        public Mutex mutex;
+        public string username;
+    }
+
     public partial class serverForm : Form
     {
         Socket socket;
@@ -26,6 +32,8 @@ namespace server
         List<string> connectedUsers = new List<String>();
         Thread dispatcherThread;
         private static Mutex mut = new Mutex();
+        private static Mutex textDbMut = new Mutex();
+        private string pathDb;
         
         public serverForm()
         {
@@ -86,6 +94,191 @@ namespace server
                 return;
             }
         }
+      
+      /* 
+       * This function creates a text database for share operations.
+       */ 
+        private void createTextDb(String path)
+        {
+            try
+            {
+                if (!File.Exists(path + "\\share.txt"))
+                {
+                    File.Create(path + "\\share.txt");
+                    printLogger("Text database created for share operation in path" + path);
+                }
+                else
+                {
+                    printLogger("Text database already available");
+                }
+                pathDb = path + "\\share.txt";
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception occured on database creation:" + exc.Message);
+                return;
+            }
+        }
+
+        /*
+         * Adds file to user entry in order to allow sharing
+         */
+        public void shareFile(string username, string filename)
+        {
+            try
+            {
+                textDbMut.WaitOne();
+                System.IO.FileStream fileStream = new System.IO.FileStream(pathDb, FileMode.Open,FileAccess.ReadWrite, FileShare.None);
+                System.IO.StreamReader iStream = new System.IO.StreamReader(fileStream);
+                System.IO.StreamWriter oStream = new System.IO.StreamWriter(fileStream);
+                string line;
+                char[] deliminator =" | ".ToCharArray();
+                while ((line = iStream.ReadLine()) != null)
+                {
+                    string[] attributes = line.Split(deliminator);
+                    if (username == attributes[0])
+                    {
+                        fileStream.Seek(-1, SeekOrigin.Current);
+                        oStream.WriteLine(" | " + filename);
+                        oStream.Flush();
+                        printLogger("File sharing entry added");
+                        break;
+                    }
+                }
+                fileStream.Close();
+                textDbMut.ReleaseMutex();
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception thrown at file reading: " + exc.Message);
+                textDbMut.ReleaseMutex();
+                return;
+            }
+        }
+
+        /*
+         * This function creates a user entry in the database
+         */
+        public void createDbEntryForUser(string username)
+        {
+            try
+            {
+                textDbMut.WaitOne();
+                System.IO.FileStream fileStream = new System.IO.FileStream(pathDb, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                System.IO.StreamReader iStream = new System.IO.StreamReader(fileStream);
+                System.IO.StreamWriter oStream = new System.IO.StreamWriter(fileStream);
+
+                string line;
+                char[] deliminator = " | ".ToCharArray();
+                while ((line = iStream.ReadLine()) != null)
+                {
+                    string[] attributes = line.Split(deliminator);
+                    if (username == attributes[0])
+                    {
+                        //username alread available return
+                        printLogger("User already exist in database");
+                        return;
+                    }
+                }
+                //If username is not avialable write it to db
+                printLogger("Creating user entry in database");
+                oStream.WriteLine(username);
+                oStream.Flush();
+                fileStream.Close();
+                textDbMut.ReleaseMutex();
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception thrown at user entry initializing: " + exc.Message);
+                textDbMut.ReleaseMutex();
+                return;
+            }
+        }
+
+        /*
+      * This function creates a user entry in the database
+      */
+        public void revokeSharing(string username, string filename)
+        {
+            try
+            {
+                textDbMut.WaitOne();
+                System.IO.FileStream fileStream = new System.IO.FileStream(pathDb, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                System.IO.StreamReader iStream = new System.IO.StreamReader(fileStream);
+                System.IO.StreamWriter oStream = new System.IO.StreamWriter(fileStream);
+
+                string line;
+                char[] deliminator = " | ".ToCharArray();
+                while ((line = iStream.ReadLine()) != null)
+                {
+                    string[] attributes = line.Split(deliminator);
+                    if (username == attributes[0])
+                    {
+                        string removedLine = "";
+                        printLogger("Removing rights to share");
+                        foreach(string attribute in attributes)
+                        {
+                            if (attribute == filename)
+                            {
+                                removedLine += " | " + attribute;
+                            }
+                        }
+                        oStream.WriteLine(removedLine);
+                        oStream.Flush();
+                        break;
+                    }
+                }
+                fileStream.Close();
+                textDbMut.ReleaseMutex();
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception thrown at revoke sharing entry initializing: " + exc.Message);
+                textDbMut.ReleaseMutex();
+                return;
+            }
+        }
+
+        /*
+         * This function puts an entry in the text database for 
+         * sharing the given file with the given user. 
+         */
+        public void revokeAll(string filename)
+        {
+            try
+            {
+                textDbMut.WaitOne();
+                System.IO.FileStream fileStream = new System.IO.FileStream(pathDb, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                System.IO.StreamReader iStream = new System.IO.StreamReader(fileStream);
+                System.IO.StreamWriter oStream = new System.IO.StreamWriter(fileStream);
+
+                string line;
+                char[] deliminator = " | ".ToCharArray();
+                while ((line = iStream.ReadLine()) != null)
+                {
+                    string[] attributes = line.Split(deliminator);
+                    string removedLine = "";
+                    printLogger("Removing rights to share from everybody for file: "+ filename);
+                    foreach (string attribute in attributes)
+                    {
+                        if (attribute == filename)
+                        {
+                            removedLine += " | " + attribute;
+                        }
+                    }
+                    oStream.WriteLine(removedLine);
+                    oStream.Flush();
+                }
+                fileStream.Close();
+                textDbMut.ReleaseMutex();
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception thrown at revoke all operation: " + exc.Message);
+                textDbMut.ReleaseMutex();
+                return;
+            }
+        }
 
         /*
          * This function retrieves path and port information from GUI
@@ -134,7 +327,10 @@ namespace server
          */
         private void dispatchFileTransferOperations()
         {
-            while (true && isStoped)
+            //Create the database for share operation
+            createTextDb(serverPath.Text);
+
+            while (true)
             {
                 try
                 {
@@ -148,6 +344,7 @@ namespace server
                 }
                 catch (ThreadInterruptedException exc)
                 {
+                    socket.Close();
                     printLogger("Thread is stopping listening");
                     break;
                 }
@@ -165,7 +362,6 @@ namespace server
         {
             try
             {
-
                 bool part1 = s.Poll(1000, SelectMode.SelectRead);
                 bool part2 = (s.Available == 0);
                 if (part1 && part2)
@@ -225,6 +421,8 @@ namespace server
 
             //Add the username in the list
             connectedUsers.Add(username);
+            //Creating database entry for user
+            createDbEntryForUser(username);
             sendResultToClient(socket, 0);
 
             printLogger("Checking for existing directory of user: " + username);
@@ -232,7 +430,6 @@ namespace server
 
             while (true)
             {
-
                 //If connection terminated exit the loop
                 if (!socketConnected(socket))
                 {
@@ -265,6 +462,30 @@ namespace server
 
                 switch (operation)
                 {
+                    //Downloading shared file operation
+                    case "DSH":
+                        int filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
+                        string filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
+                        int ownerNameSize = BitConverter.ToInt32(operationInfo.Skip(3 + 4 + filenameSize).Take(4).ToArray(), 0);
+                        string ownerName = encoder.GetString(operationInfo.Skip(3 + 4 + filenameSize + 4).Take(ownerNameSize).ToArray());
+                        dataTransferToClient(socketObj, ownerName, filename);
+                        break;
+                    //File sharing operation
+                    case "SHR":
+                        filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
+                        filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
+                        int userToShareSize = BitConverter.ToInt32(operationInfo.Skip(3 + 4 + filenameSize).Take(4).ToArray(), 0);
+                        string userToShare = encoder.GetString(operationInfo.Skip(3 + 4 + filenameSize + 4).Take(userToShareSize).ToArray());
+                        shareFileWithUser(username, username + "\\" + filename);
+                        break;
+                    //File sharing operation
+                    case "RVK":
+                        filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
+                        filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
+                        int userToRevokeSize = BitConverter.ToInt32(operationInfo.Skip(3 + 4 + filenameSize).Take(4).ToArray(), 0);
+                        string userToRevoke = encoder.GetString(operationInfo.Skip(3 + 4 + filenameSize + 4).Take(userToRevokeSize).ToArray());
+                        revokeSharingeWithUser(username, filename);
+                        break;
                     //File upload operation
                     case "UPL":
                         transferData(socketObj, username);
@@ -276,8 +497,8 @@ namespace server
                     //File delete operation
                     case "DEL":
                         //Parse the file to be deleted
-                        int filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
-                        string filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
+                        filenameSize = BitConverter.ToInt32(operationInfo.Skip(3).Take(4).ToArray(), 0);
+                        filename = encoder.GetString(operationInfo.Skip(3 + 4).Take(filenameSize).ToArray());
                         deleteFile(socketObj, username, filename);
                         break;
                     //File rename operation
@@ -365,6 +586,7 @@ namespace server
                 if (File.Exists(filePath))
                 {           
                     File.Delete(filePath);
+                    revokeAll(username + "\\" + filename);
                     sendResultToClient(socket, 0);
                 }else
                 { 
@@ -402,6 +624,7 @@ namespace server
                     }
 
                     File.Move(filePath, newFilePath);
+                    revokeAll(username + "\\" + filename);
                     //File rename is successful
                     sendResultToClient(socket, 0);
                 }
@@ -452,6 +675,24 @@ namespace server
                 MessageBox.Show("Exception occured during data transfer: " + exc.Message);
                 return;
             }
+        }
+
+        /*
+         * This function puts an entry in the text database for 
+         * sharing the given file with the given user. 
+         */
+        public void shareFileWithUser(string username, string filename)
+        {
+            shareFile(username, filename);
+        }
+
+        /*
+         * This function removes the share database entry from the 
+         * share database to revoke user sharing rights.
+         */ 
+        public void revokeSharingeWithUser(string username, string filename)
+        {
+            revokeSharing(username, filename);
         }
 
         private void FileSendCallback(IAsyncResult ar)
@@ -515,6 +756,12 @@ namespace server
              * the file transfer is completed.
              */
             byte[] data = new byte[8 * 1024];
+            //If a file is reupload revoke all the sharing
+            if (File.Exists(serverPath.Text + "\\" + username + "\\" + filename))
+            {
+                revokeAll(username + "\\" + filename);
+            }
+             
             FileStream stream = File.Create(serverPath.Text + "\\" + username + "\\" + filename);
             try
             {
@@ -571,9 +818,9 @@ namespace server
             if (Button_Start.Text == "Start Listening")
             {
                 initalizeListening();
-                //Button_Start.Enabled = false;
-                //Button_Stop.Enabled = true;
-                Button_Start.Text = "Stop Listening";
+               /* Button_Start.Enabled = false;
+                Button_Stop.Enabled = true;
+                Button_Start.Text = "Stop Listening";*/
             }
             else
             {
@@ -583,18 +830,11 @@ namespace server
                     DialogResult DR = MessageBox.Show("There are " + clientnumber + " client(s) connected to server.\n Are you sure ?", "WARNING", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);
                     if (DR == DialogResult.Yes)
                     {
-
-                        foreach (string c in connectedUsers)
-                        {
-                            //    
-                        }
                         connectedUsers.Clear();
                         terminateSocket(socket);
                         socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                         printLogger("Server stopped listening at port " + Numeric_Port.Value + ".\r\n");
                         Button_Start.Text = "Start Listening";
-                        //textBox1.Enabled = true;
-
                     }
                 }
             }
@@ -608,16 +848,6 @@ namespace server
             //Creating a socket to listen the incoming requests
             socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);           
-        }
-
-        private void Button_Stop_Click(object sender, EventArgs e)
-        {
-            mut.WaitOne();
-            dispatcherThread.Interrupt();
-            mut.ReleaseMutex();
-
-            Button_Stop.Enabled = false;
-            Button_Start.Enabled = true;
         }
 
         /*
@@ -692,6 +922,33 @@ namespace server
                 else
                     e.Cancel = true;
             }
+        }
+
+        private void Button_Stop_Click_1(object sender, EventArgs e)
+        {
+            printLogger("Server stopping listening");
+            mut.WaitOne();
+            dispatcherThread.Interrupt();
+            mut.ReleaseMutex();
+
+            Button_Stop.Enabled = false;
+            Button_Start.Enabled = true;
+        }
+
+        private void sendNotificationToClient(ClientConnection client,string message)
+        {
+            UTF8Encoding encoder = new UTF8Encoding();
+            byte[] messageInBytes = encoder.GetBytes(message);
+            client.mutex.WaitOne();
+            try
+            {
+                client.socket.Send(messageInBytes);
+            }
+            catch (Exception exc)
+            {
+                MessageBox.Show("Exception occured on sending notification to the client: " + client.username);
+            }
+            client.mutex.ReleaseMutex();
         }
     }
 }
